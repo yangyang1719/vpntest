@@ -24,13 +24,20 @@ apt-get update
 apt-get install -y amneziawg
 command -v awg >/dev/null
 command -v awg-quick >/dev/null
+module_version=$(modinfo -F version amneziawg)
+tools_version=$(awg --version | awk 'NR==1 {sub(/^v/, "", $2); print $2}')
+if ! dpkg --compare-versions "$module_version" ge 3.1 || ! dpkg --compare-versions "$tools_version" ge 3.1; then
+  echo "AmneziaWG 3.1 or newer is required (module: $module_version; tools: $tools_version)." >&2
+  exit 1
+fi
 install -d -m 700 /etc/amnezia/amneziawg
 server_private=$(awg genkey)
 server_public=$(printf '%s' "$server_private" | awg pubkey)
 client_private=$(awg genkey)
 client_public=$(printf '%s' "$client_private" | awg pubkey)
 psk=$(awg genpsk)
-# AWG 1.x-compatible fixed headers; matching values are required at both ends.
+header_protection_key=$(awg genkey)
+# AWG 3.1 header protection requires S1-S4 >= 12 and matching values on both ends.
 cat > /etc/amnezia/amneziawg/awg0.conf <<CONFIG
 [Interface]
 Address = 10.77.77.1/24
@@ -39,12 +46,17 @@ PrivateKey = $server_private
 Jc = 4
 Jmin = 40
 Jmax = 70
-S1 = 0
-S2 = 0
-H1 = 123456789
-H2 = 987654321
-H3 = 111111111
-H4 = 222222222
+S1 = 16
+S2 = 16
+S3 = 16
+S4 = 16
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+HeaderProtectionKey = $header_protection_key
+ContentPaddingAddition = 16-48
+RandomTrailers = on
 PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.77.77.0/24 -o $iface -j MASQUERADE
 PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.77.77.0/24 -o $iface -j MASQUERADE
 
@@ -61,12 +73,17 @@ DNS = 1.1.1.1
 Jc = 4
 Jmin = 40
 Jmax = 70
-S1 = 0
-S2 = 0
-H1 = 123456789
-H2 = 987654321
-H3 = 111111111
-H4 = 222222222
+S1 = 16
+S2 = 16
+S3 = 16
+S4 = 16
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+HeaderProtectionKey = $header_protection_key
+ContentPaddingAddition = 16-48
+RandomTrailers = on
 
 [Peer]
 PublicKey = $server_public
