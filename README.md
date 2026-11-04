@@ -28,6 +28,17 @@ ssh root@SERVER_IP 'bash /root/upgrade-amneziawg-3.1.sh'
 
 然后把服务器 `/root/awg-client.conf` 安全复制到本地，改用简短文件名（例如 `awg31.conf`）导入官方 AmneziaWG 3.1 客户端。升级后先关闭并删除旧隧道，再启用新隧道；旧客户端配置不再匹配。请妥善保管包含私钥的配置文件，导入后清理不需要的明文副本。
 
+手机和 Mac 同时使用时，需要为 Mac 创建独立客户端。新增命令会自动分配下一个 `10.77.77.x/32` 地址、生成独立密钥、复制服务器的 3.1 混淆参数，并将新 Peer 写入服务器配置和运行中的接口；不会改动已有客户端。客户端名称限 1–15 个字母、数字、下划线或连字符。
+
+```sh
+scp scripts/add-amneziawg-client.sh root@SERVER_IP:/root/
+ssh root@SERVER_IP 'bash /root/add-amneziawg-client.sh mac SERVER_IP'
+scp root@SERVER_IP:/root/awg-clients/mac.conf ./mac.conf
+chmod 600 ./mac.conf
+```
+
+在 Mac 上安装支持 3.1 的官方 AmneziaWG，选择 **Import tunnel(s) from file** 导入 `mac.conf`，再开启隧道。该文件含私钥；导入后清理不需要的明文副本。不要把手机的配置复制到 Mac 同时使用。
+
 服务器侧可用 `systemctl is-active awg-quick@awg0` 和 `awg show awg0` 检查状态；客户端连接后应检查握手、DNS 和实际流量。脚本拒绝覆盖现有配置，重复执行安装脚本不是升级方式。
 
 ## 2026-11-04 服务器测试记录
@@ -45,3 +56,9 @@ ssh root@SERVER_IP 'bash /root/upgrade-amneziawg-3.1.sh'
 - 服务器模块和工具实际报告 `3.1.20260812`；Android 官方客户端为 `3.1.20260814`。服务器已运行新的配置：`S1-S4 = 16`、`H1-H4 = 1,2,3,4`、随机生成的 `HeaderProtectionKey`、`ContentPaddingAddition = 16-48`、`RandomTrailers = on`，同时保留 `Jc = 4`、`Jmin = 40`、`Jmax = 70`。服务端与客户端配置一致。
 - 升级脚本在服务器上执行成功，`awg-quick@awg0` 为 `active`。Android 导入新配置后显示 `Connected`，流量经 `tun0`；`10.77.77.1`、`1.1.1.1`、`example.com` 各 3/3 次 ping 成功，服务器记录到新握手和双向流量。
 - 重启 `awg-quick@awg0` 后，手机首次探测超时，随后自动恢复并再次 2/2 次 ping 通隧道地址。尚未测试整机重启。手机上已删除旧隧道，仅保留新的 `awg31` 隧道。
+
+## 2026-11-04 新增客户端验证
+
+- 在现有测试服务器上执行 `add-amneziawg-client.sh mac SERVER_IP`（将 `SERVER_IP` 换成服务器公网 IP），生成独立的 `/root/awg-clients/mac.conf`，权限为 `600`，目录权限为 `700`。Mac 使用 `10.77.77.3/32`，Android 保持 `10.77.77.2/32`。
+- 新客户端的 3.1 参数与服务器逐项一致。服务重启后两个 Peer 均保留；Android 的首次探测短暂超时，随后访问 `example.com` 成功。重复执行同名新增命令被拒绝，Peer 数保持为 2。
+- 尚未在 macOS 客户端导入配置和建立 Mac 握手；服务器侧新增命令已验证，Mac 端连接仍待验证。
