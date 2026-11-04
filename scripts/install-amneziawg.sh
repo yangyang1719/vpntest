@@ -17,10 +17,44 @@ fi
 iface=$(ip route show default | awk 'NR==1 {print $5}')
 if [[ ! $iface =~ ^[a-zA-Z0-9_.-]+$ ]]; then echo 'Cannot determine default interface.' >&2; exit 1; fi
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
+
+# Some Ubuntu 22.04 cloud images point at an internal mirror that is unreachable
+# from another region. apt-get update can return 0 while using stale indexes.
+apt_update_checked() {
+  local log
+  log=$(mktemp)
+  if ! apt-get update -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 >"$log" 2>&1 \
+    || grep -Eq '(^Err:|Failed to fetch|Some index files failed to download)' "$log"; then
+    tail -20 "$log" >&2
+    rm -f "$log"
+    return 1
+  fi
+  rm -f "$log"
+}
+
+if ! timeout 8 getent ahostsv4 archive.ubuntu.com >/dev/null; then
+  echo 'DNS lookup failed; trying temporary public DNS on the default interface.' >&2
+  if ! command -v resolvectl >/dev/null || ! resolvectl dns "$iface" 1.1.1.1 8.8.8.8 \
+    || ! timeout 8 getent ahostsv4 archive.ubuntu.com >/dev/null; then
+    echo 'DNS is still unavailable. Repair the server resolver before installation.' >&2
+    exit 1
+  fi
+fi
+if ! apt_update_checked; then
+  if [[ ! -f /etc/apt/sources.list ]] || ! grep -q 'mirrors.cloud.aliyuncs.com/ubuntu' /etc/apt/sources.list; then
+    echo 'APT update failed; repair the configured software sources before installation.' >&2
+    exit 1
+  fi
+  backup=/etc/apt/sources.list.pre-amneziawg
+  if [[ -e $backup ]]; then echo "Backup already exists: $backup" >&2; exit 1; fi
+  cp -p /etc/apt/sources.list "$backup"
+  sed -i 's@mirrors.cloud.aliyuncs.com/ubuntu@archive.ubuntu.com/ubuntu@g' /etc/apt/sources.list
+  echo "Switched unreachable cloud mirror to archive.ubuntu.com; original saved at $backup." >&2
+  apt_update_checked || { echo 'APT update still failed after changing the Ubuntu mirror.' >&2; exit 1; }
+fi
 apt-get install -y software-properties-common python3-launchpadlib gnupg2 "linux-headers-$(uname -r)" iptables
 add-apt-repository -y ppa:amnezia/ppa
-apt-get update
+apt_update_checked
 apt-get install -y amneziawg
 command -v awg >/dev/null
 command -v awg-quick >/dev/null
