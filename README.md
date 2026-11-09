@@ -41,6 +41,22 @@ chmod 600 ./mac.conf
 
 服务器侧可用 `systemctl is-active awg-quick@awg0` 和 `awg show awg0` 检查状态；客户端连接后应检查握手、DNS 和实际流量。脚本拒绝覆盖现有配置，重复执行安装脚本不是升级方式。
 
+## UDP 中转
+
+`scripts/setup-hk-relay.sh` 通过 SSH 在一台 Ubuntu 22.04 中转机上配置 UDP 转发，将中转端口收到的流量送到已有的 VPN 服务器。客户端先连接中转机，VPN 服务器仍负责隧道和公网出口。是否提速取决于实际线路，请比较直连与中转的延迟、丢包和吞吐。
+
+在本地仓库目录执行，将占位符替换成自己的地址：
+
+```sh
+bash scripts/setup-hk-relay.sh root@RELAY_HOST VPN_SERVER_IPV4 51820 51820
+```
+
+四个参数依次是中转机 SSH 地址、VPN 服务器公网 IPv4、中转机 UDP 端口、VPN 服务器 UDP 端口；后两个端口可省略，默认均为 51820。需要 SSH 私钥时可在命令前加 `SSH_KEY=/path/to/key`。远程用户需要能以无需交互输入密码的 sudo 执行脚本。中转机需有 `ip` 和 `iptables`，且对应 UDP 入站端口须在云安全组和系统防火墙放行；VPN 服务器的 UDP 端口也需允许中转机访问。
+
+在客户端原有配置的 `[Peer]` 中，将 `Endpoint` 改为 `RELAY_HOST:中转端口`，保留原有密钥与混淆参数，然后重新连接。检查中转机上的 `systemctl status awg-udp-relay.service`、VPN 服务器的 `awg show awg0`，并测试客户端实际访问。连接配置包含私钥，应妥善保管。
+
+脚本通过 systemd 持久化规则，拒绝覆盖已有的同名服务。停止服务不会自动删除已添加的 iptables 规则或恢复 IPv4 转发设置；它也没有安装失败自动回滚。转发和 NAT 规则会影响中转机的防火墙行为，使用前应检查现有策略。中转功能由使用者报告已测试可用，本仓库尚未记录完整的端到端性能测试结果。
+
 ## 2026-11-04 服务器测试记录
 
 - 测试机：Ubuntu 22.04.5，内核 `5.15.0-198-generic`。
